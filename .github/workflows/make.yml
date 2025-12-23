@@ -1,0 +1,61 @@
+name: Win/Mac/Linux
+
+on:
+  push:
+    branches:
+      - binutils-2_45_1-cedev
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        runs-on: [ubuntu-22.04, macos-15-intel, macos-14, windows-latest]
+        include:
+          - nul: /dev/null
+          - runs-on: macos-15-intel
+            arch-suffix: "-intel"
+            install-output-ext: "dmg"
+          - runs-on: macos-14
+            arch-suffix: "-arm"
+            install-output-ext: "dmg"
+          - runs-on: windows-latest
+            env: "env:"
+            exe: .exe
+            nul: nul
+            install-output-ext: "zip"
+          - runs-on: ubuntu-22.04
+            install-output-ext: "tar.gz"
+    runs-on: ${{matrix.runs-on}}
+    steps:
+      - name: Prepare Build Environment
+        run: cmake -E echo >> $${{matrix.env}}GITHUB_PATH
+
+      - name: Checkout binutils
+        uses: actions/checkout@v4
+        with:
+          path: ${{github.workspace}}
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Build binutils
+        run: |
+          cd ${{github.workspace}}
+          CC=gcc ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --prefix=${{github.workspace}}/binutils-install
+          make -j4 && make install -j4
+
+      - name: "[Linux] Tar install"
+        if: runner.os == 'Linux'
+        run: |
+          tar -C ${{github.workspace}} -czvf binutils-${{runner.os}}.${{matrix.install-output-ext}} binutils-install
+      - name: "[Windows] Zip install"
+        if: runner.os == 'Windows'
+        run: |
+          cd ${{github.workspace}} && 7z a -tzip binutils-${{runner.os}}.${{matrix.install-output-ext}} binutils-install
+
+      - name: Upload binutils
+        uses: actions/upload-artifact@v4
+        with:
+          name: binutils-${{runner.os}}${{matrix.arch-suffix}}
+          path: binutils-${{runner.os}}${{matrix.arch-suffix}}.${{matrix.install-output-ext}}
+
