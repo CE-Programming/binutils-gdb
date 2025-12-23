@@ -1,0 +1,184 @@
+name: Win/Mac/Linux
+
+on:
+  push:
+    branches:
+      - binutils-2_46-cedev
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        runs-on: [ubuntu-22.04, macos-15-intel, macos-14, windows-latest]
+        include:
+          - runs-on: ubuntu-22.04
+            install-output-ext: "tar.gz"
+          - runs-on: macos-15-intel
+            arch-suffix: "-intel"
+            install-output-ext: "tar.gz"
+          - runs-on: macos-14
+            arch-suffix: "-arm"
+            install-output-ext: "tar.gz"
+          - runs-on: windows-latest
+            install-output-ext: "tar.gz"
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - name: Checkout binutils
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: "[Linux] Install dependencies"
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y texinfo libreadline-dev libgmp-dev libmpfr-dev
+
+      - name: "[macOS] Install dependencies"
+        if: runner.os == 'macOS'
+        run: brew install texinfo gmp mpfr
+
+      - name: Setup MSYS2
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          cache: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-autotools
+            mingw-w64-x86_64-gettext-tools
+            make
+            texinfo
+            bison
+            flex
+            gmp
+            mpfr
+
+      - name: "[Linux] Build binutils"
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          ./configure --target=z80-none-elf --with-zstd=no --disable-sim --disable-nls --disable-plugins --without-python --prefix="${{ runner.temp }}/binutils"
+          make -j4 && make install-strip -j4
+
+      - name: "[macOS] Build binutils"
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ./configure --target=z80-none-elf --with-zstd=no --disable-sim --disable-nls --disable-plugins --without-python --with-system-zlib --with-gmp=$(brew --prefix gmp) --with-mpfr=$(brew --prefix mpfr) --prefix="${{ runner.temp }}/binutils"
+          make -j4 && make install-strip -j4
+
+      - name: "[Windows] Build binutils"
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          export ac_cv_header_term_h=no
+          export ac_cv_header_ncurses_term_h=no
+          export ac_cv_search_tgetent=no
+          PREFIX=$(cygpath -m "${{ runner.temp }}/binutils")
+          ./configure --target=z80-none-elf --disable-tui --without-curses --with-zstd=no --disable-sim --disable-nls --disable-plugins --disable-shared --enable-static --without-python --prefix="$PREFIX"
+          make configure-host && make -j4 LDFLAGS="-all-static" MAKEINFO=true && make install-strip -j4 MAKEINFO=true
+
+      - name: "[Unix] Install License Files"
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p "${{ runner.temp }}/binutils/license"
+          cp COPYING3 "${{ runner.temp }}/binutils/license"
+          cp COPYING3.LIB "${{ runner.temp }}/binutils/license"
+          cp readme.txt "${{ runner.temp }}/binutils"
+      - name: "[Windows] Install License Files"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "${{ runner.temp }}\binutils\license"
+          Copy-Item COPYING3 -Destination "${{ runner.temp }}\binutils\license"
+          Copy-Item COPYING3.LIB -Destination "${{ runner.temp }}\binutils\license"
+          Copy-Item readme.txt -Destination "${{ runner.temp }}\binutils"
+
+      - name: "[Unix] Tar install"
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd ${{ runner.temp }} && tar -chzvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} --exclude='z80-none-elf' --exclude='lib' binutils
+          mv ${{ runner.temp }}/binutils-${{ runner.os }}.${{ matrix.install-output-ext }} ${{github.workspace}}
+
+      - name: "[Windows] Tar install"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Set-Location "${{ runner.temp }}"
+          tar -chzvf "binutils-${{ runner.os }}.${{ matrix.install-output-ext }}" --exclude='z80-none-elf' --exclude='lib' binutils
+          Move-Item "binutils-${{ runner.os }}.${{ matrix.install-output-ext }}" "${{ github.workspace }}"
+
+      - name: Upload binutils
+        uses: actions/upload-artifact@v4
+        with:
+          name: binutils-${{ runner.os }}${{ matrix.arch-suffix }}
+          path: binutils-${{ runner.os }}.${{ matrix.install-output-ext }}
+
+
+  nightly:
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Download Ubuntu binutils
+        uses: actions/download-artifact@v4
+        with:
+          name: binutils-Linux
+          path: ${{github.workspace}}/ubuntu
+
+      - name: Download macOS Intel binutils
+        uses: actions/download-artifact@v4
+        with:
+          name: binutils-macOS-intel
+          path: ${{github.workspace}}/macos-intel
+
+      - name: Download macOS ARM binutils
+        uses: actions/download-artifact@v4
+        with:
+          name: binutils-macOS-arm
+          path: ${{github.workspace}}/macos-arm
+
+      - name: Download Windows binutils
+        uses: actions/download-artifact@v4
+        with:
+          name: binutils-Windows
+          path: ${{github.workspace}}/windows
+
+      - name: Create Ubunutu Nightly
+        run: |
+          cd ubuntu
+          mv binutils-Linux.tar.gz ../binutils_ubuntu_nightly.tar.gz
+
+      - name: Create macOS Intel Nightly
+        run: |
+          cd macos-intel
+          mv binutils-macOS.tar.gz ../binutils_macos_intel_nightly.tar.gz
+
+      - name: Create macOS ARM Nightly
+        run: |
+          cd macos-arm
+          mv binutils-macOS.tar.gz ../binutils_macos_arm_nightly.tar.gz
+
+      - name: Create Windows Nightly
+        run: |
+          cd windows
+          tar -xzvf binutils-Windows.tar.gz
+          zip -r9 ../binutils_windows_nightly.zip binutils
+
+      - name: Create Nightly Release
+        uses: softprops/action-gh-release@5122b4edc95f85501a71628a57dc180a03ec7588
+        with:
+          tag_name: nightly
+          name: Nightly Build
+          prerelease: true
+          files: |
+            binutils_ubuntu_nightly.tar.gz
+            binutils_macos_intel_nightly.tar.gz
+            binutils_macos_arm_nightly.tar.gz
+            binutils_windows_nightly.zip

@@ -137,6 +137,9 @@ extern void z80_elf_final_processing (void);
 extern int z80_dwarf2_addr_size (const bfd *abfd);
 
 /* CFI hooks.  */
+
+#define TARGET_USE_CFIPOP 1
+
 #define tc_cfi_frame_initial_instructions z80_tc_frame_initial_instructions
 extern void z80_tc_frame_initial_instructions (void);
 
