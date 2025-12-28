@@ -93,3 +93,74 @@ jobs:
         with:
           name: binutils-${{ runner.os }}${{ matrix.arch-suffix }}
           path: binutils-${{ runner.os }}.${{ matrix.install-output-ext }}
+
+
+  nightly:
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Download Ubuntu binutils
+        uses: actions/download-artifact@v4
+        with:
+          name: binutils-Linux
+          path: ${{github.workspace}}/ubuntu
+
+      - name: Download macOS Intel binutils
+        uses: actions/download-artifact@v4
+        with:
+          name: binutils-macOS-intel
+          path: ${{github.workspace}}/macos-intel
+
+      - name: Download macOS ARM binutils
+        uses: actions/download-artifact@v4
+        with:
+          name: binutils-macOS-arm
+          path: ${{github.workspace}}/macos-arm
+
+      - name: Download Windows binutils
+        uses: actions/download-artifact@v4
+        with:
+          name: binutils-Windows
+          path: ${{github.workspace}}/windows
+
+      - name: Extract and Zip Ubuntu Artifacts
+        run: |
+          cd ubuntu
+          tar -xzvf binutils-Linux.tar.gz
+          mv binutils-install binutils
+          zip -r9 ../binutils_ubuntu_nightly.zip binutils
+
+      - name: Extract and Zip macOS Intel Artifacts
+        run: |
+          cd macos-intel
+          tar -xzvf binutils-macOS.tar.gz
+          mv binutils-install binutils
+          zip -r9 ../binutils_macos_intel_nightly.zip binutils
+
+      - name: Extract and Zip macOS ARM Artifacts
+        run: |
+          cd macos-arm
+          tar -xzvf binutils-macOS.tar.gz
+          mv binutils-install binutils
+          zip -r9 ../binutils_macos_arm_nightly.zip binutils
+
+      - name: Extract and Zip Windows Artifacts
+        run: |
+          cd windows
+          tar -xzvf binutils-Windows.tar.gz
+          mv binutils-install binutils
+          zip -r9 ../binutils_windows_nightly.zip binutils
+
+      - name: Create Nightly Release
+        uses: softprops/action-gh-release@5122b4edc95f85501a71628a57dc180a03ec7588
+        with:
+          tag_name: nightly
+          name: Nightly Build
+          prerelease: true
+          files: |
+            binutils_ubuntu_nightly.zip
+            binutils_macos_intel_nightly.zip
+            binutils_macos_arm_nightly.zip
+            binutils_windows_nightly.zip
