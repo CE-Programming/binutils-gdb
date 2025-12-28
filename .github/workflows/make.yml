@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - binutils-2_45_1-cedev
+  workflow_dispatch:
 
 jobs:
   build:
@@ -12,50 +13,83 @@ jobs:
       matrix:
         runs-on: [ubuntu-22.04, macos-15-intel, macos-14, windows-latest]
         include:
-          - nul: /dev/null
-          - runs-on: macos-15-intel
-            arch-suffix: "-intel"
-            install-output-ext: "dmg"
-          - runs-on: macos-14
-            arch-suffix: "-arm"
-            install-output-ext: "dmg"
-          - runs-on: windows-latest
-            env: "env:"
-            exe: .exe
-            nul: nul
-            install-output-ext: "zip"
           - runs-on: ubuntu-22.04
             install-output-ext: "tar.gz"
-    runs-on: ${{matrix.runs-on}}
+          - runs-on: macos-15-intel
+            arch-suffix: "-intel"
+            install-output-ext: "tar.gz"
+          - runs-on: macos-14
+            arch-suffix: "-arm"
+            install-output-ext: "tar.gz"
+          - runs-on: windows-latest
+            install-output-ext: "tar.gz"
+    runs-on: ${{ matrix.runs-on }}
     steps:
-      - name: Prepare Build Environment
-        run: cmake -E echo >> $${{matrix.env}}GITHUB_PATH
-
       - name: Checkout binutils
         uses: actions/checkout@v4
         with:
-          path: ${{github.workspace}}
           submodules: recursive
-          persist-credentials: false
 
-      - name: Build binutils
+      - name: "[Linux] Install dependencies"
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y texinfo
+
+      - name: "[macOS] Install dependencies"
+        if: runner.os == 'macOS'
+        run: brew install texinfo
+
+      - name: Setup MSYS2
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          cache: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-autotools
+            mingw-w64-x86_64-gettext-tools
+            make
+            texinfo
+            bison
+            flex
+
+      - name: "[Linux] Build binutils"
+        if: runner.os == 'Linux'
+        shell: bash
         run: |
-          cd ${{github.workspace}}
-          CC=gcc ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --prefix=${{github.workspace}}/binutils-install
+          ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --prefix="$GITHUB_WORKSPACE/binutils-install"
           make -j4 && make install -j4
 
-      - name: "[Linux] Tar install"
-        if: runner.os == 'Linux'
+      - name: "[macOS] Build binutils"
+        if: runner.os == 'macOS'
+        shell: bash
         run: |
-          tar -C ${{github.workspace}} -czvf binutils-${{runner.os}}.${{matrix.install-output-ext}} binutils-install
-      - name: "[Windows] Zip install"
+          ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --with-system-zlib --prefix="$GITHUB_WORKSPACE/binutils-install"
+          make -j4 && make install -j4
+
+      - name: "[Windows] Build binutils"
         if: runner.os == 'Windows'
+        shell: msys2 {0}
         run: |
-          cd ${{github.workspace}} && 7z a -tzip binutils-${{runner.os}}.${{matrix.install-output-ext}} binutils-install
+          PREFIX=$(cygpath -m "$GITHUB_WORKSPACE/binutils-install")
+          ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --prefix="$PREFIX"
+          make -j4 MAKEINFO=true && make install -j4 MAKEINFO=true
+
+      - name: "[Unix] Tar install"
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          tar -czvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} binutils-install
+
+      - name: "[Windows] Tar install"
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          tar -czvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} binutils-install
 
       - name: Upload binutils
         uses: actions/upload-artifact@v4
         with:
-          name: binutils-${{runner.os}}${{matrix.arch-suffix}}
-          path: binutils-${{runner.os}}${{matrix.arch-suffix}}.${{matrix.install-output-ext}}
-
+          name: binutils-${{ runner.os }}${{ matrix.arch-suffix }}
+          path: binutils-${{ runner.os }}.${{ matrix.install-output-ext }}
