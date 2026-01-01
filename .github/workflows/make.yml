@@ -58,23 +58,23 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --prefix="$GITHUB_WORKSPACE/binutils-install"
-          make -j4 && make install -j4
+          ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --disable-nls --prefix="$GITHUB_WORKSPACE/binutils-install"
+          make -j4 && make install-strip -j4
 
       - name: "[macOS] Build binutils"
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --with-system-zlib --prefix="$GITHUB_WORKSPACE/binutils-install"
-          make -j4 && make install -j4
+          ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --disable-nls --with-system-zlib --prefix="$GITHUB_WORKSPACE/binutils-install"
+          make -j4 && make install-strip -j4
 
       - name: "[Windows] Build binutils"
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           PREFIX=$(cygpath -m "$GITHUB_WORKSPACE/binutils-install")
-          ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --prefix="$PREFIX"
-          make -j4 MAKEINFO=true && make install -j4 MAKEINFO=true
+          ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --disable-nls --disable-shared --enable-static --prefix="$PREFIX"
+          make configure-host && make -j4 LDFLAGS="-all-static" MAKEINFO=true && make install-strip -j4 MAKEINFO=true
 
       - name: "[Unix] Tar install"
         if: runner.os != 'Windows'
