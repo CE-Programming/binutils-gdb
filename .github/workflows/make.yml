@@ -58,35 +58,37 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --disable-nls --prefix="$GITHUB_WORKSPACE/binutils-install"
+          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --prefix="${{ runner.temp }}/binutils"
           make -j4 && make install-strip -j4
 
       - name: "[macOS] Build binutils"
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --disable-nls --with-system-zlib --prefix="$GITHUB_WORKSPACE/binutils-install"
+          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --with-system-zlib --prefix="${{ runner.temp }}/binutils"
           make -j4 && make install-strip -j4
 
       - name: "[Windows] Build binutils"
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          PREFIX=$(cygpath -m "$GITHUB_WORKSPACE/binutils-install")
-          ./configure --target=z80-none-elf --disable-gdb --disable-sim --disable-readline --disable-nls --disable-shared --enable-static --prefix="$PREFIX"
+          PREFIX=$(cygpath -m "${{ runner.temp }}/binutils")
+          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --disable-shared --enable-static --prefix="$PREFIX"
           make configure-host && make -j4 LDFLAGS="-all-static" MAKEINFO=true && make install-strip -j4 MAKEINFO=true
 
       - name: "[Unix] Tar install"
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          tar -czvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} binutils-install
+          cd ${{ runner.temp }} && tar -czvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} binutils
+          mv ${{ runner.temp }}/binutils-${{ runner.os }}.${{ matrix.install-output-ext }} ${{github.workspace}}
 
       - name: "[Windows] Tar install"
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          tar -czvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} binutils-install
+          cd ${{ runner.temp }} && tar -czvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} binutils
+          mv ${{ runner.temp }}/binutils-${{ runner.os }}.${{ matrix.install-output-ext }} ${{github.workspace}}
 
       - name: Upload binutils
         uses: actions/upload-artifact@v4
@@ -125,32 +127,25 @@ jobs:
           name: binutils-Windows
           path: ${{github.workspace}}/windows
 
-      - name: Extract and Zip Ubuntu Artifacts
+      - name: Create Ubunutu Nightly
         run: |
           cd ubuntu
-          tar -xzvf binutils-Linux.tar.gz
-          mv binutils-install binutils
-          zip -r9 ../binutils_ubuntu_nightly.zip binutils
+          mv binutils-Linux.tar.gz ../binutils_ubuntu_nightly.tar.gz
 
-      - name: Extract and Zip macOS Intel Artifacts
+      - name: Create macOS Intel Nightly
         run: |
           cd macos-intel
-          tar -xzvf binutils-macOS.tar.gz
-          mv binutils-install binutils
-          zip -r9 ../binutils_macos_intel_nightly.zip binutils
+          mv binutils-macOS.tar.gz ../binutils_macos_intel_nightly.tar.gz
 
-      - name: Extract and Zip macOS ARM Artifacts
+      - name: Create macOS ARM Nightly
         run: |
           cd macos-arm
-          tar -xzvf binutils-macOS.tar.gz
-          mv binutils-install binutils
-          zip -r9 ../binutils_macos_arm_nightly.zip binutils
+          mv binutils-macOS.tar.gz ../binutils_macos_arm_nightly.tar.gz
 
-      - name: Extract and Zip Windows Artifacts
+      - name: Create Windows Nightly
         run: |
           cd windows
           tar -xzvf binutils-Windows.tar.gz
-          mv binutils-install binutils
           zip -r9 ../binutils_windows_nightly.zip binutils
 
       - name: Create Nightly Release
@@ -160,7 +155,7 @@ jobs:
           name: Nightly Build
           prerelease: true
           files: |
-            binutils_ubuntu_nightly.zip
-            binutils_macos_intel_nightly.zip
-            binutils_macos_arm_nightly.zip
+            binutils_ubuntu_nightly.tar.gz
+            binutils_macos_intel_nightly.tar.gz
+            binutils_macos_arm_nightly.tar.gz
             binutils_windows_nightly.zip
