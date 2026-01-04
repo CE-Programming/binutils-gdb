@@ -76,6 +76,23 @@ jobs:
           ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --disable-shared --enable-static --prefix="$PREFIX"
           make configure-host && make -j4 LDFLAGS="-all-static" MAKEINFO=true && make install-strip -j4 MAKEINFO=true
 
+      - name: "[Unix] Install License Files"
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p "${{ runner.temp }}/binutils/license"
+          cp COPYING3 "${{ runner.temp }}/binutils/license"
+          cp COPYING3.LIB "${{ runner.temp }}/binutils/license"
+          cp readme.txt "${{ runner.temp }}/binutils"
+      - name: "[Windows] Install License Files"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "${{ runner.temp }}\binutils\license"
+          Copy-Item COPYING3 -Destination "${{ runner.temp }}\binutils\license"
+          Copy-Item COPYING3.LIB -Destination "${{ runner.temp }}\binutils\license"
+          Copy-Item readme.txt -Destination "${{ runner.temp }}\binutils"
+
       - name: "[Unix] Tar install"
         if: runner.os != 'Windows'
         shell: bash
@@ -85,10 +102,11 @@ jobs:
 
       - name: "[Windows] Tar install"
         if: runner.os == 'Windows'
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          cd ${{ runner.temp }} && tar -chzvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} --exclude='z80-none-elf' binutils
-          mv ${{ runner.temp }}/binutils-${{ runner.os }}.${{ matrix.install-output-ext }} ${{github.workspace}}
+          Set-Location "${{ runner.temp }}"
+          tar -chzvf "binutils-${{ runner.os }}.${{ matrix.install-output-ext }}" --exclude='z80-none-elf' binutils
+          Move-Item "binutils-${{ runner.os }}.${{ matrix.install-output-ext }}" "${{ github.workspace }}"
 
       - name: Upload binutils
         uses: actions/upload-artifact@v4
