@@ -80,14 +80,14 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          cd ${{ runner.temp }} && tar -czvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} binutils
+          cd ${{ runner.temp }} && tar -chzvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} --exclude='z80-none-elf' binutils
           mv ${{ runner.temp }}/binutils-${{ runner.os }}.${{ matrix.install-output-ext }} ${{github.workspace}}
 
       - name: "[Windows] Tar install"
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          cd ${{ runner.temp }} && tar -czvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} binutils
+          cd ${{ runner.temp }} && tar -chzvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} --exclude='z80-none-elf' binutils
           mv ${{ runner.temp }}/binutils-${{ runner.os }}.${{ matrix.install-output-ext }} ${{github.workspace}}
 
       - name: Upload binutils
