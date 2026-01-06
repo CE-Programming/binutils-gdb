@@ -58,14 +58,14 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --prefix="${{ runner.temp }}/binutils"
+          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --disable-plugins --prefix="${{ runner.temp }}/binutils"
           make -j4 && make install-strip -j4
 
       - name: "[macOS] Build binutils"
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --with-system-zlib --prefix="${{ runner.temp }}/binutils"
+          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --disable-plugins --prefix="${{ runner.temp }}/binutils"
           make -j4 && make install-strip -j4
 
       - name: "[Windows] Build binutils"
@@ -73,7 +73,7 @@ jobs:
         shell: msys2 {0}
         run: |
           PREFIX=$(cygpath -m "${{ runner.temp }}/binutils")
-          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --disable-shared --enable-static --prefix="$PREFIX"
+          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --disable-plugins --disable-shared --enable-static --prefix="$PREFIX"
           make configure-host && make -j4 LDFLAGS="-all-static" MAKEINFO=true && make install-strip -j4 MAKEINFO=true
 
       - name: "[Unix] Install License Files"
