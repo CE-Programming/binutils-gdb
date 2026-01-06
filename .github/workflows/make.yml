@@ -65,7 +65,7 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --disable-plugins --prefix="${{ runner.temp }}/binutils"
+          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --disable-plugins --with-system-zlib --prefix="${{ runner.temp }}/binutils"
           make -j4 && make install-strip -j4
 
       - name: "[Windows] Build binutils"
@@ -97,7 +97,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          cd ${{ runner.temp }} && tar -chzvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} --exclude='z80-none-elf' binutils
+          cd ${{ runner.temp }} && tar -chzvf binutils-${{ runner.os }}.${{ matrix.install-output-ext }} --exclude='z80-none-elf' --exclude='lib' binutils
           mv ${{ runner.temp }}/binutils-${{ runner.os }}.${{ matrix.install-output-ext }} ${{github.workspace}}
 
       - name: "[Windows] Tar install"
@@ -105,7 +105,7 @@ jobs:
         shell: pwsh
         run: |
           Set-Location "${{ runner.temp }}"
-          tar -chzvf "binutils-${{ runner.os }}.${{ matrix.install-output-ext }}" --exclude='z80-none-elf' binutils
+          tar -chzvf "binutils-${{ runner.os }}.${{ matrix.install-output-ext }}" --exclude='z80-none-elf' --exclude='lib' binutils
           Move-Item "binutils-${{ runner.os }}.${{ matrix.install-output-ext }}" "${{ github.workspace }}"
 
       - name: Upload binutils
