@@ -641,7 +641,7 @@ z80_frame_unwind_cache (const frame_info_ptr &this_frame,
   /* Adjust all the saved registers so that they contain addresses and not
      offsets.  */
   for (i = 0; i < gdbarch_num_regs (gdbarch) - 1; i++)
-    if (info->saved_regs[i].addr () > 0)
+    if (info->saved_regs[i].is_addr () && info->saved_regs[i].addr () > 0)
       info->saved_regs[i].set_addr
 	(info->prev_sp - info->saved_regs[i].addr () * addr_len);
 
