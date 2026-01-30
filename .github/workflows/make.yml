@@ -32,11 +32,11 @@ jobs:
 
       - name: "[Linux] Install dependencies"
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y texinfo
+        run: sudo apt-get update && sudo apt-get install -y texinfo libreadline-dev libgmp-dev libmpfr-dev
 
       - name: "[macOS] Install dependencies"
         if: runner.os == 'macOS'
-        run: brew install texinfo
+        run: brew install texinfo gmp mpfr
 
       - name: Setup MSYS2
         if: runner.os == 'Windows'
@@ -53,27 +53,32 @@ jobs:
             texinfo
             bison
             flex
+            gmp
+            mpfr
 
       - name: "[Linux] Build binutils"
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --disable-plugins --prefix="${{ runner.temp }}/binutils"
+          ./configure --target=z80-none-elf --with-zstd=no --disable-sim --disable-nls --disable-plugins --without-python --prefix="${{ runner.temp }}/binutils"
           make -j4 && make install-strip -j4
 
       - name: "[macOS] Build binutils"
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --disable-plugins --with-system-zlib --prefix="${{ runner.temp }}/binutils"
+          ./configure --target=z80-none-elf --with-zstd=no --disable-sim --disable-nls --disable-plugins --without-python --with-system-zlib --with-gmp=$(brew --prefix gmp) --with-mpfr=$(brew --prefix mpfr) --prefix="${{ runner.temp }}/binutils"
           make -j4 && make install-strip -j4
 
       - name: "[Windows] Build binutils"
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
+          export ac_cv_header_term_h=no
+          export ac_cv_header_ncurses_term_h=no
+          export ac_cv_search_tgetent=no
           PREFIX=$(cygpath -m "${{ runner.temp }}/binutils")
-          ./configure --target=z80-none-elf --with-zstd=no --disable-gdb --disable-sim --disable-readline --disable-nls --disable-plugins --disable-shared --enable-static --prefix="$PREFIX"
+          ./configure --target=z80-none-elf --disable-tui --without-curses --with-zstd=no --disable-sim --disable-nls --disable-plugins --disable-shared --enable-static --without-python --prefix="$PREFIX"
           make configure-host && make -j4 LDFLAGS="-all-static" MAKEINFO=true && make install-strip -j4 MAKEINFO=true
 
       - name: "[Unix] Install License Files"
