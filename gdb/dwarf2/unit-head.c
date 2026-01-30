@@ -202,6 +202,12 @@ unit_head::read_address (bfd *abfd, const gdb_byte *buf,
 	case 2:
 	  retval = bfd_get_signed_16 (abfd, buf);
 	  break;
+	case 3:
+	  {
+	    ULONGEST u = bfd_get_24 (abfd, buf);
+	    retval = (u & 0x800000) ? (ULONGEST) (u | ~((ULONGEST) 0xffffff)) : u;
+	    break;
+	  }
 	case 4:
 	  retval = bfd_get_signed_32 (abfd, buf);
 	  break;
@@ -219,6 +225,9 @@ unit_head::read_address (bfd *abfd, const gdb_byte *buf,
 	{
 	case 2:
 	  retval = bfd_get_16 (abfd, buf);
+	  break;
+	case 3:
+	  retval = bfd_get_24 (abfd, buf);
 	  break;
 	case 4:
 	  retval = bfd_get_32 (abfd, buf);
