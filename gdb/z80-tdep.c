@@ -23,6 +23,7 @@
 #include "frame.h"
 #include "frame-unwind.h"
 #include "frame-base.h"
+#include "dwarf2/frame.h"
 #include "trad-frame.h"
 #include "cli/cli-cmds.h"
 #include "gdbcore.h"
@@ -585,6 +586,8 @@ z80_return_value (struct gdbarch *gdbarch, struct value *function,
   return RETURN_VALUE_REGISTER_CONVENTION;
 }
 
+static bool z80_insn_is_ret (struct gdbarch *, CORE_ADDR);
+
 /* function unwinds current stack frame and returns next one */
 static struct z80_unwind_cache *
 z80_frame_unwind_cache (const frame_info_ptr &this_frame,
@@ -612,7 +615,14 @@ z80_frame_unwind_cache (const frame_info_ptr &this_frame,
     z80_scan_prologue (get_frame_arch (this_frame),
 		       start_pc, current_pc, info);
 
-  if (info->prologue_type.fp_sdcc || info->prologue_type.fp_iy)
+  if (z80_insn_is_ret (gdbarch, current_pc))
+    {
+      /* At a normal RET the epilogue has restored SP and any saved IX.
+	 IY may already have been overwritten by a deallocation POP.  */
+      trad_frame_reset_saved_regs (gdbarch, info->saved_regs);
+      info->prev_sp = get_frame_register_unsigned (this_frame, Z80_SP_REGNUM);
+    }
+  else if (info->prologue_type.fp_sdcc || info->prologue_type.fp_iy)
     {
       /* IX points to its saved caller value; unsaved IY points to the return
 	 address. In either case saved state lies above the frame base. */
@@ -1234,6 +1244,7 @@ z80_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
 
   set_gdbarch_overlay_update (gdbarch, z80_overlay_update);
 
+  dwarf2_append_unwinders (gdbarch);
   frame_unwind_append_unwinder (gdbarch, &z80_frame_unwind);
   if (tdesc_data)
     tdesc_use_registers (gdbarch, tdesc, std::move (tdesc_data));

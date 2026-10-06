@@ -1420,22 +1420,6 @@ static const registry<objfile>::key<comp_unit> dwarf2_frame_objfile_data;
    position in the FDE, ...).  Bit 7, indicates that the address
    should be dereferenced.  */
 
-static gdb_byte
-encoding_for_size (unsigned int size)
-{
-  switch (size)
-    {
-    case 2:
-      return DW_EH_PE_udata2;
-    case 4:
-      return DW_EH_PE_udata4;
-    case 8:
-      return DW_EH_PE_udata8;
-    default:
-      internal_error (_("Unsupported address size"));
-    }
-}
-
 static ULONGEST
 read_encoded_value (struct comp_unit *unit, gdb_byte encoding,
 		    int ptr_len, const gdb_byte *buf,
@@ -1485,9 +1469,14 @@ read_encoded_value (struct comp_unit *unit, gdb_byte encoding,
 
   if ((encoding & 0x07) == 0x00)
     {
-      encoding |= encoding_for_size (ptr_len);
-      if (bfd_get_sign_extend_vma (unit->abfd))
-	encoding |= DW_EH_PE_signed;
+      /* Absolute pointers use the target width, which need not have a
+	 DW_EH_PE_udataN encoding (e.g. eZ80 has 3-byte pointers).  */
+      enum bfd_endian byte_order = (bfd_big_endian (unit->abfd)
+				   ? BFD_ENDIAN_BIG : BFD_ENDIAN_LITTLE);
+      *bytes_read_ptr += ptr_len;
+      if ((encoding & DW_EH_PE_signed) || bfd_get_sign_extend_vma (unit->abfd))
+	return base + extract_signed_integer (buf, ptr_len, byte_order);
+      return base + extract_unsigned_integer (buf, ptr_len, byte_order);
     }
 
   switch (encoding & 0x0f)
