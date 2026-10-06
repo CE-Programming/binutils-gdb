@@ -101,6 +101,7 @@ struct z80_unwind_cache
     unsigned int load_args : 1; /* prologues loads args using POPs */
     unsigned int ix_saved : 1;  /* prologue saves IX */
     unsigned int fp_sdcc : 1;   /* prologue saves and adjusts frame pointer IX */
+    unsigned int fp_iy : 1;     /* LLVM uses IY without changing the caller IX */
     unsigned int interrupt : 1; /* __interrupt handler */
     unsigned int critical : 1;  /* __critical function */
   } prologue_type;
@@ -392,12 +393,25 @@ z80_scan_prologue (struct gdbarch *gdbarch, CORE_ADDR pc_beg, CORE_ADDR pc_end,
       info->prologue_type.ix_saved = 1;
     }
 
+  /* LLVM's alternate frame pointer is caller-saved IY. IX retains the
+     caller's value; there is no saved frame-pointer slot in this frame. */
+  if (pos + addr_len + 4 <= len
+      && !memcmp (&prologue[pos], "\375\041\000\000", addr_len + 2)
+      && !memcmp (&prologue[pos + addr_len + 2], "\375\071", 2))
+    {
+      pos += addr_len + 4;
+      info->prologue_type.fp_iy = 1;
+    }
+
   /* stage3: check for local variables allocation */
   switch (pos < len ? prologue[pos] : 0)
     {
       case 0xf5: /* push af */
+      case 0xc5: /* push bc */
+      case 0xd5: /* push de */
+      case 0xe5: /* push hl */
 	info->size = 0;
-	while (pos < len && prologue[pos] == 0xf5)
+	while (pos < len && (prologue[pos] & 0xcf) == 0xc5)
 	  {
 	    info->size += addr_len;
 	    pos++;
@@ -502,7 +516,8 @@ z80_skip_prologue (struct gdbarch *gdbarch, CORE_ADDR pc)
 
     prologue_end = z80_scan_prologue (gdbarch, func_addr, func_end, &info);
 
-    if (info.prologue_type.fp_sdcc || info.prologue_type.interrupt ||
+    if (info.prologue_type.fp_sdcc || info.prologue_type.fp_iy
+	|| info.prologue_type.interrupt ||
 	info.prologue_type.critical)
       return std::max (pc, prologue_end);
   }
@@ -597,11 +612,13 @@ z80_frame_unwind_cache (const frame_info_ptr &this_frame,
     z80_scan_prologue (get_frame_arch (this_frame),
 		       start_pc, current_pc, info);
 
-  if (info->prologue_type.fp_sdcc)
+  if (info->prologue_type.fp_sdcc || info->prologue_type.fp_iy)
     {
-      /*  With SDCC standard prologue, IX points to the end of current frame
-	  (where previous frame pointer and state are saved).  */
-      this_base = get_frame_register_unsigned (this_frame, Z80_IX_REGNUM);
+      /* IX points to its saved caller value; unsaved IY points to the return
+	 address. In either case saved state lies above the frame base. */
+      int frame_reg = info->prologue_type.fp_iy
+	? Z80_IY_REGNUM : Z80_IX_REGNUM;
+      this_base = get_frame_register_unsigned (this_frame, frame_reg);
       info->prev_sp = this_base + info->state_size;
     }
   else
@@ -1659,6 +1676,29 @@ z80_prologue_test ()
 	SELF_CHECK (cache.prologue_type.load_args);
 	SELF_CHECK (cache.size == 0);
       }
+      /* IY frame setup followed by LLVM's allocation pushes. Check every
+	 instruction boundary, including stops before ADD IY,SP completes. */
+      std::vector<gdb_byte> iy_code {0xfd, 0x21};
+      iy_code.insert (iy_code.end (), width, 0);
+      iy_code.insert (iy_code.end (), {0xfd, 0x39});
+      int iy_frame_len = iy_code.size ();
+      iy_code.insert (iy_code.end (), {0xe5, 0xc5, 0x3b});
+      memcpy (ctx.mock_target.code, iy_code.data (), iy_code.size ());
+      for (int len = 0; len <= iy_code.size (); ++len)
+	{
+	  z80_unwind_cache cache {};
+	  trad_frame_saved_reg saved[EZ80_NUM_REGS];
+	  cache.saved_regs = saved;
+	  trad_frame_reset_saved_regs (arch, saved);
+	  int end = z80_scan_prologue (arch, 0x1000, 0x1000 + len, &cache);
+	  SELF_CHECK (end <= 0x1000 + len);
+	  SELF_CHECK (cache.prologue_type.fp_iy == (len >= iy_frame_len));
+	  SELF_CHECK (!cache.prologue_type.ix_saved);
+	  SELF_CHECK (!saved[Z80_IX_REGNUM].is_addr ());
+	  SELF_CHECK (cache.state_size == 0);
+	  if (len == iy_code.size ())
+	    SELF_CHECK (cache.size == 2 * width + 1);
+	}
       /* Saving IX alone must not make the caller's IX this frame's base.  */
       ctx.mock_target.code[0] = 0xdd;
       ctx.mock_target.code[1] = 0xe5;
