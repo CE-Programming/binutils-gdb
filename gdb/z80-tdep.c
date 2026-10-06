@@ -540,7 +540,8 @@ z80_return_value (struct gdbarch *gdbarch, struct value *function,
 		  struct type *valtype, struct regcache *regcache,
 		  gdb_byte *readbuf, const gdb_byte *writebuf)
 {
-  /* Byte are returned in L, word in HL, dword in DEHL.  */
+  /* Scalars use HL, then DE.  Each pair holds three bytes in ADL mode.  */
+  int register_len = gdbarch_tdep<z80_gdbarch_tdep> (gdbarch)->addr_length;
   int len = valtype->length ();
 
   if ((valtype->code () == TYPE_CODE_STRUCT
@@ -549,24 +550,21 @@ z80_return_value (struct gdbarch *gdbarch, struct value *function,
       && len > 4)
     return RETURN_VALUE_STRUCT_CONVENTION;
 
-  if (writebuf != NULL)
+  int hl_len = std::min (len, register_len);
+  if (writebuf != nullptr)
     {
-      if (len > 2)
-	{
-	  regcache->cooked_write_part (Z80_DE_REGNUM, 0, len - 2, writebuf+2);
-	  len = 2;
-	}
-      regcache->cooked_write_part (Z80_HL_REGNUM, 0, len, writebuf);
+      if (len > register_len)
+	regcache->cooked_write_part (Z80_DE_REGNUM, 0, len - register_len,
+				    writebuf + register_len);
+      regcache->cooked_write_part (Z80_HL_REGNUM, 0, hl_len, writebuf);
     }
 
-  if (readbuf != NULL)
+  if (readbuf != nullptr)
     {
-      if (len > 2)
-	{
-	  regcache->cooked_read_part (Z80_DE_REGNUM, 0, len - 2, readbuf+2);
-	  len = 2;
-	}
-      regcache->cooked_read_part (Z80_HL_REGNUM, 0, len, readbuf);
+      if (len > register_len)
+	regcache->cooked_read_part (Z80_DE_REGNUM, 0, len - register_len,
+				   readbuf + register_len);
+      regcache->cooked_read_part (Z80_HL_REGNUM, 0, hl_len, readbuf);
     }
 
   return RETURN_VALUE_REGISTER_CONVENTION;
@@ -1674,6 +1672,47 @@ z80_prologue_test ()
     }
 }
 
+static void
+z80_return_value_test ()
+{
+  for (unsigned long mach : {bfd_mach_z80, bfd_mach_ez80_z80,
+			     bfd_mach_ez80_adl})
+    {
+      gdbarch_info info;
+      info.bfd_arch_info = bfd_lookup_arch (bfd_arch_z80, mach);
+      info.byte_order = BFD_ENDIAN_LITTLE;
+      gdbarch *arch = gdbarch_find_by_info (info);
+      scoped_mock_context<z80_step_target> ctx (arch);
+      regcache *regs = get_thread_arch_regcache (&ctx.mock_inferior,
+						ctx.mock_ptid, arch);
+      gdb_byte zero[3] {};
+      regs->raw_supply (Z80_HL_REGNUM, zero);
+      regs->raw_supply (Z80_DE_REGNUM, zero);
+      int width = gdbarch_tdep<z80_gdbarch_tdep> (arch)->addr_length;
+      auto *types = builtin_type (arch);
+      for (type *type : {types->builtin_uint8, types->builtin_uint16,
+			 types->builtin_uint24, types->builtin_uint32})
+	{
+	  gdb_byte input[] = {0x56, 0x34, 0x12, 0x78};
+	  gdb_byte output[4] {};
+	  int len = type->length ();
+	  SELF_CHECK (z80_return_value (arch, nullptr, type, regs, nullptr,
+					input) == RETURN_VALUE_REGISTER_CONVENTION);
+	  ULONGEST hl, de;
+	  regs->cooked_read (Z80_HL_REGNUM, &hl);
+	  regs->cooked_read (Z80_DE_REGNUM, &de);
+	  SELF_CHECK (hl == extract_unsigned_integer (input,
+			  std::min (len, width), BFD_ENDIAN_LITTLE));
+	  if (len > width)
+	    SELF_CHECK (de == extract_unsigned_integer (input + width,
+			    len - width, BFD_ENDIAN_LITTLE));
+	  z80_return_value (arch, nullptr, type, regs, output, nullptr);
+	  SELF_CHECK (memcmp (input, output, len) == 0);
+	  regs->raw_supply (Z80_HL_REGNUM, zero);
+	  regs->raw_supply (Z80_DE_REGNUM, zero);
+	}
+    }
+}
 
 } /* namespace selftests */
 #endif /* GDB_SELF_TEST */
@@ -1685,5 +1724,6 @@ INIT_GDB_FILE (z80_tdep)
 #if GDB_SELF_TEST
   selftests::register_test ("z80-step-ret", selftests::z80_step_ret_test);
   selftests::register_test ("z80-prologue", selftests::z80_prologue_test);
+  selftests::register_test ("z80-return-value", selftests::z80_return_value_test);
 #endif
 }

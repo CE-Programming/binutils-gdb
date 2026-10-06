@@ -81,21 +81,25 @@ jobs:
           ./configure --target=z80-none-elf --disable-tui --without-curses --with-zstd=no --disable-sim --enable-unit-tests --disable-nls --disable-plugins --disable-shared --enable-static --without-python --without-guile --disable-source-highlight --without-debuginfod --prefix="$PREFIX"
           make configure-host && make -j4 LDFLAGS="-all-static" MAKEINFO=true && make install-strip -j4 MAKEINFO=true
 
-      - name: "[Unix] Test GDB return-address stepping"
+      - name: "[Unix] Test GDB stepping, prologues and return values"
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          "${{ runner.temp }}/binutils/bin/z80-none-elf-gdb" -nx -batch -ex 'maintenance selftest z80-step-ret' 2>&1 | tee gdb-selftests.log
-          grep -Fx 'Ran 1 unit tests, 0 failed' gdb-selftests.log
+          for test in z80-step-ret z80-prologue z80-return-value; do
+            "${{ runner.temp }}/binutils/bin/z80-none-elf-gdb" -nx -batch -ex "maintenance selftest $test" 2>&1 | tee gdb-selftests.log
+            grep -Fx 'Ran 1 unit tests, 0 failed' gdb-selftests.log
+          done
 
-      - name: "[Windows] Test GDB return-address stepping"
+      - name: "[Windows] Test GDB stepping, prologues and return values"
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           set -eo pipefail
           PREFIX=$(cygpath -u "${{ runner.temp }}/binutils")
-          "$PREFIX/bin/z80-none-elf-gdb.exe" -nx -batch -ex 'maintenance selftest z80-step-ret' 2>&1 | tr -d '\r' | tee gdb-selftests.log
-          grep -Fx 'Ran 1 unit tests, 0 failed' gdb-selftests.log
+          for test in z80-step-ret z80-prologue z80-return-value; do
+            "$PREFIX/bin/z80-none-elf-gdb.exe" -nx -batch -ex "maintenance selftest $test" 2>&1 | tr -d '\r' | tee gdb-selftests.log
+            grep -Fx 'Ran 1 unit tests, 0 failed' gdb-selftests.log
+          done
 
       - name: Record source revision
         shell: bash
