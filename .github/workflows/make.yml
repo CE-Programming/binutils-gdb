@@ -97,6 +97,14 @@ jobs:
           "$PREFIX/bin/z80-none-elf-gdb.exe" -nx -batch -ex 'maintenance selftest z80-step-ret' 2>&1 | tr -d '\r' | tee gdb-selftests.log
           grep -Fx 'Ran 1 unit tests, 0 failed' gdb-selftests.log
 
+      - name: Record source revision
+        shell: bash
+        run: |
+          {
+            echo 'Upstream release: binutils-2_47 (6ce87bbc521cf46eaee9a1f7ef61cee2cdfb3e32)'
+            git show -s --format='CEdev commit: %H%nSource: https://github.com/CE-Programming/binutils-gdb/tree/%H'
+          } > source-info.txt
+
       - name: "[Unix] Install License Files"
         if: runner.os != 'Windows'
         shell: bash
@@ -105,6 +113,7 @@ jobs:
           cp COPYING3 "${{ runner.temp }}/binutils/license"
           cp COPYING3.LIB "${{ runner.temp }}/binutils/license"
           cp readme.txt "${{ runner.temp }}/binutils"
+          cp source-info.txt "${{ runner.temp }}/binutils"
       - name: "[Windows] Install License Files"
         if: runner.os == 'Windows'
         shell: pwsh
@@ -113,6 +122,7 @@ jobs:
           Copy-Item COPYING3 -Destination "${{ runner.temp }}\binutils\license"
           Copy-Item COPYING3.LIB -Destination "${{ runner.temp }}\binutils\license"
           Copy-Item readme.txt -Destination "${{ runner.temp }}\binutils"
+          Copy-Item source-info.txt -Destination "${{ runner.temp }}\binutils"
 
       - name: "[Unix] Tar install"
         if: runner.os != 'Windows'
