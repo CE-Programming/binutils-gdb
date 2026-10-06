@@ -22,14 +22,12 @@ prog="$3"
 
 shift 3
 
-major=$("$prog" --version \
-	    | grep "GNU texinfo" \
-	    | sed 's/^.* \([0-9][0-9]*\)\.[0-9][0-9]*\(.*\)\?$/\1/')
-minor=$("$prog" --version \
-	    | grep "GNU texinfo" \
-	    | sed 's/^.* [0-9][0-9]*\.\([0-9][0-9]*\)\(.*\)\?$/\1/')
+version=$("$prog" --version \
+	      | sed -n '1s/^.* \([0-9][0-9]*\)\.\([0-9][0-9]*\).*$/\1.\2/p')
+major=${version%%.*}
+minor=${version#*.}
 
-if [ "$major" = "" ] || [ "$major" = "" ]; then
+if [ "$major" = "" ] || [ "$minor" = "" ]; then
     echo "Cannot determine makeinfo version for $prog.  Info documentation will not be build."
     exit
 fi
