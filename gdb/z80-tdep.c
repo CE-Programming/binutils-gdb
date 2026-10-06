@@ -92,14 +92,14 @@ struct z80_unwind_cache
   /* Size of the frame, prev_sp + size = next_frame.prev_sp */
   ULONGEST size;
 
-  /* size of saved state (including frame pointer and return address),
-     assume: prev_sp + size = IX + state_size */
+  /* Bytes saved below the return address, including the caller's IX.  */
   ULONGEST state_size;
 
   struct
   {
     unsigned int called : 1;    /* there is return address on stack */
     unsigned int load_args : 1; /* prologues loads args using POPs */
+    unsigned int ix_saved : 1;  /* prologue saves IX */
     unsigned int fp_sdcc : 1;   /* prologue saves and adjusts frame pointer IX */
     unsigned int interrupt : 1; /* __interrupt handler */
     unsigned int critical : 1;  /* __critical function */
@@ -185,8 +185,10 @@ z80_register_type (struct gdbarch *gdbarch, int reg_nr)
 /* The next 2 functions check BUF for instruction.  If it is pop/push rr, then
    it returns register number OR'ed with 0x100 */
 static int
-z80_is_pop_rr (const gdb_byte buf[], int *size)
+z80_is_pop_rr (const gdb_byte buf[], int len, int *size)
 {
+  if (len == 0)
+    return 0;
   switch (buf[0])
     {
     case 0xc1:
@@ -203,18 +205,20 @@ z80_is_pop_rr (const gdb_byte buf[], int *size)
       return Z80_AF_REGNUM | 0x100;
     case 0xdd:
       *size = 2;
-      return (buf[1] == 0xe1) ? (Z80_IX_REGNUM | 0x100) : 0;
+      return (len >= 2 && buf[1] == 0xe1) ? (Z80_IX_REGNUM | 0x100) : 0;
     case 0xfd:
       *size = 2;
-      return (buf[1] == 0xe1) ? (Z80_IY_REGNUM | 0x100) : 0;
+      return (len >= 2 && buf[1] == 0xe1) ? (Z80_IY_REGNUM | 0x100) : 0;
     }
   *size = 0;
   return 0;
 }
 
 static int
-z80_is_push_rr (const gdb_byte buf[], int *size)
+z80_is_push_rr (const gdb_byte buf[], int len, int *size)
 {
+  if (len == 0)
+    return 0;
   switch (buf[0])
     {
     case 0xc5:
@@ -231,10 +235,10 @@ z80_is_push_rr (const gdb_byte buf[], int *size)
       return Z80_AF_REGNUM | 0x100;
     case 0xdd:
       *size = 2;
-      return (buf[1] == 0xe5) ? (Z80_IX_REGNUM | 0x100) : 0;
+      return (len >= 2 && buf[1] == 0xe5) ? (Z80_IX_REGNUM | 0x100) : 0;
     case 0xfd:
       *size = 2;
-      return (buf[1] == 0xe5) ? (Z80_IY_REGNUM | 0x100) : 0;
+      return (len >= 2 && buf[1] == 0xe5) ? (Z80_IY_REGNUM | 0x100) : 0;
     }
   *size = 0;
   return 0;
@@ -310,10 +314,12 @@ z80_scan_prologue (struct gdbarch *gdbarch, CORE_ADDR pc_beg, CORE_ADDR pc_end,
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   z80_gdbarch_tdep *tdep = gdbarch_tdep<z80_gdbarch_tdep> (gdbarch);
   int addr_len = tdep->addr_length;
-  gdb_byte prologue[32]; /* max prologue is 24 bytes: __interrupt with local array */
+  /* Include space for an interrupt prologue with local storage.  */
+  gdb_byte prologue[32] = {};
   int pos = 0;
   int len;
   int reg;
+  int first_size = 0;
   CORE_ADDR value;
 
   len = pc_end - pc_beg;
@@ -323,16 +329,19 @@ z80_scan_prologue (struct gdbarch *gdbarch, CORE_ADDR pc_beg, CORE_ADDR pc_end,
   read_memory (pc_beg, prologue, len);
 
   /* stage0: check for series of POPs and then PUSHs */
-  if ((reg = z80_is_pop_rr(prologue, &pos)))
+  if ((reg = z80_is_pop_rr (prologue, len, &first_size)))
     {
+      pos = first_size;
       int i;
       int size = pos;
-      gdb_byte regs[8]; /* Z80 have only 6 register pairs */
-      regs[0] = reg & 0xff;
-      for (i = 1; i < 8 && (regs[i] = z80_is_pop_rr (&prologue[pos], &size));
+      int regs[8]; /* Register numbers include the matching flag.  */
+      regs[0] = reg;
+      for (i = 1; i < 8
+	   && (regs[i] = z80_is_pop_rr (&prologue[pos], len - pos, &size));
 	   ++i, pos += size);
       /* now we expect series of PUSHs in reverse order */
-      for (--i; i >= 0 && regs[i] == z80_is_push_rr (&prologue[pos], &size);
+      for (--i; i >= 0
+	   && regs[i] == z80_is_push_rr (&prologue[pos], len - pos, &size);
 	   --i, pos += size);
       if (i == -1 && pos > 0)
 	info->prologue_type.load_args = 1;
@@ -340,21 +349,19 @@ z80_scan_prologue (struct gdbarch *gdbarch, CORE_ADDR pc_beg, CORE_ADDR pc_end,
 	pos = 0;
     }
   /* stage1: check for __interrupt handlers and __critical functions */
-  else if (!memcmp (&prologue[pos], "\355\127\363\365", 4))
+  else if (len >= 4 && !memcmp (&prologue[pos], "\355\127\363\365", 4))
     { /* ld a, i; di; push af */
       info->prologue_type.critical = 1;
       pos += 4;
-      info->state_size += addr_len;
     }
-  else if (!memcmp (&prologue[pos], "\365\305\325\345\375\345", 6))
+  else if (len >= 6 && !memcmp (&prologue[pos], "\365\305\325\345\375\345", 6))
     { /* push af; push bc; push de; push hl; push iy */
       info->prologue_type.interrupt = 1;
       pos += 6;
-      info->state_size += addr_len * 5;
     }
 
   /* stage2: check for FP saving scheme */
-  if (prologue[pos] == 0xcd) /* call nn */
+  if (pos + 1 + addr_len <= len && prologue[pos] == 0xcd) /* call nn */
     {
       bound_minimal_symbol msymbol
 	= lookup_minimal_symbol (current_program_space, "__sdcc_enter_ix");
@@ -364,33 +371,38 @@ z80_scan_prologue (struct gdbarch *gdbarch, CORE_ADDR pc_beg, CORE_ADDR pc_end,
 	  if (value == extract_unsigned_integer (&prologue[pos+1], addr_len, byte_order))
 	    {
 	      pos += 1 + addr_len;
+	      info->prologue_type.ix_saved = 1;
 	      info->prologue_type.fp_sdcc = 1;
 	    }
 	}
     }
-  else if (!memcmp (&prologue[pos], "\335\345\335\041\000\000", 4+addr_len) &&
-	   !memcmp (&prologue[pos+4+addr_len], "\335\071\335\371", 4))
-    { /* push ix; ld ix, #0; add ix, sp; ld sp, ix */
-      pos += 4 + addr_len + 4;
+  else if (pos + 4 + addr_len + 2 <= len
+	   && !memcmp (&prologue[pos], "\335\345\335\041\000\000", 4+addr_len)
+	   && !memcmp (&prologue[pos+4+addr_len], "\335\071", 2))
+    { /* push ix; ld ix, #0; add ix, sp; optional ld sp, ix */
+      pos += 4 + addr_len + 2;
+      if (pos + 2 <= len && !memcmp (&prologue[pos], "\335\371", 2))
+	pos += 2;
+      info->prologue_type.ix_saved = 1;
       info->prologue_type.fp_sdcc = 1;
     }
-  else if (!memcmp (&prologue[pos], "\335\345", 2))
+  else if (pos + 2 <= len && !memcmp (&prologue[pos], "\335\345", 2))
     { /* push ix */
       pos += 2;
-      info->prologue_type.fp_sdcc = 1;
+      info->prologue_type.ix_saved = 1;
     }
 
   /* stage3: check for local variables allocation */
-  switch (prologue[pos])
+  switch (pos < len ? prologue[pos] : 0)
     {
       case 0xf5: /* push af */
 	info->size = 0;
-	while (prologue[pos] == 0xf5)
+	while (pos < len && prologue[pos] == 0xf5)
 	  {
 	    info->size += addr_len;
 	    pos++;
 	  }
-	if (prologue[pos] == 0x3b) /* dec sp */
+	if (pos < len && prologue[pos] == 0x3b) /* dec sp */
 	  {
 	    info->size++;
 	    pos++;
@@ -398,22 +410,24 @@ z80_scan_prologue (struct gdbarch *gdbarch, CORE_ADDR pc_beg, CORE_ADDR pc_end,
 	break;
       case 0x3b: /* dec sp */
 	info->size = 0;
-	while (prologue[pos] == 0x3b)
+	while (pos < len && prologue[pos] == 0x3b)
 	  {
 	    info->size++;
 	    pos++;
 	  }
 	break;
       case 0x21: /*ld hl, -nn */
-	if (prologue[pos+addr_len] == 0x39 && prologue[pos+addr_len] >= 0x80 &&
-	    prologue[pos+addr_len+1] == 0xf9)
+	if (pos + addr_len + 3 <= len && prologue[pos+addr_len] >= 0x80 &&
+	    prologue[pos+addr_len+1] == 0x39 &&
+	    prologue[pos+addr_len+2] == 0xf9)
 	  { /* add hl, sp; ld sp, hl */
 	    info->size = -extract_signed_integer(&prologue[pos+1], addr_len, byte_order);
 	    pos += 1 + addr_len + 2;
 	  }
 	break;
       case 0xfd: /* ld iy, -nn */
-	if (prologue[pos+1] == 0x21 && prologue[pos+1+addr_len] >= 0x80 &&
+	if (pos + addr_len + 6 <= len && prologue[pos+1] == 0x21
+	    && prologue[pos+1+addr_len] >= 0x80 &&
 	    !memcmp (&prologue[pos+2+addr_len], "\375\071\375\371", 4))
 	  {
 	    info->size = -extract_signed_integer(&prologue[pos+2], addr_len, byte_order);
@@ -421,17 +435,17 @@ z80_scan_prologue (struct gdbarch *gdbarch, CORE_ADDR pc_beg, CORE_ADDR pc_end,
 	  }
 	break;
       case 0xed: /* check for lea xx, ix - n */
-	switch (prologue[pos+1])
+	switch (pos + 1 < len ? prologue[pos+1] : 0)
 	  {
 	  case 0x22: /* lea hl, ix - n */
-	    if (prologue[pos+2] >= 0x80 && prologue[pos+3] == 0xf9)
+	    if (pos + 4 <= len && prologue[pos+2] >= 0x80 && prologue[pos+3] == 0xf9)
 	      { /* ld sp, hl */
 		info->size = -extract_signed_integer(&prologue[pos+2], 1, byte_order);
 		pos += 4;
 	      }
 	    break;
 	  case 0x55: /* lea iy, ix - n */
-	    if (prologue[pos+2] >= 0x80 && prologue[pos+3] == 0xfd &&
+	    if (pos + 5 <= len && prologue[pos+2] >= 0x80 && prologue[pos+3] == 0xfd &&
 		prologue[pos+4] == 0xf9)
 	      { /* ld sp, iy */
 		info->size = -extract_signed_integer(&prologue[pos+2], 1, byte_order);
@@ -441,7 +455,8 @@ z80_scan_prologue (struct gdbarch *gdbarch, CORE_ADDR pc_beg, CORE_ADDR pc_end,
 	  }
 	  break;
     }
-  len = 0;
+  /* Saved registers are numbered from one, below the return address.  */
+  len = 1;
 
   if (info->prologue_type.interrupt)
     {
@@ -455,10 +470,10 @@ z80_scan_prologue (struct gdbarch *gdbarch, CORE_ADDR pc_beg, CORE_ADDR pc_end,
   if (info->prologue_type.critical)
     len++; /* just skip IFF2 saved state */
 
-  if (info->prologue_type.fp_sdcc)
+  if (info->prologue_type.ix_saved)
     info->saved_regs[Z80_IX_REGNUM].set_addr (len++);
 
-  info->state_size += len * addr_len;
+  info->state_size += (len - 1) * addr_len;
 
   return pc_beg + pos;
 }
@@ -589,7 +604,7 @@ z80_frame_unwind_cache (const frame_info_ptr &this_frame,
       /*  With SDCC standard prologue, IX points to the end of current frame
 	  (where previous frame pointer and state are saved).  */
       this_base = get_frame_register_unsigned (this_frame, Z80_IX_REGNUM);
-      info->prev_sp = this_base + info->size;
+      info->prev_sp = this_base + info->state_size;
     }
   else
     {
@@ -601,7 +616,7 @@ z80_frame_unwind_cache (const frame_info_ptr &this_frame,
       /* Assume that the FP is this frame's SP but with that pushed
 	 stack space added back.  */
       this_base = get_frame_register_unsigned (this_frame, Z80_SP_REGNUM);
-      sp = this_base + info->size;
+      sp = this_base + info->size + info->state_size;
       for (;; ++sp)
 	{
 	  /* Limit the scan to 2 * addr_len iterations.  If the unwinder's
@@ -616,7 +631,7 @@ z80_frame_unwind_cache (const frame_info_ptr &this_frame,
 	     remote serial targets if the stack is severely corrupted.  */
 	  if (++loop_count > 2 * addr_len || sp > addr_space_max)
 	    { /* Limit reached or end of address space, assume end of stack.  */
-	      sp = this_base + info->size;
+	      sp = this_base + info->size + info->state_size;
 	      break;
 	    }
 	  /* find return address */
@@ -1490,7 +1505,7 @@ namespace selftests {
 class z80_step_target : public test_target_ops
 {
 public:
-  gdb_byte code[8] = {};
+  gdb_byte code[32] = {};
   gdb_byte stack[3] = {0x57, 0xa9, 0xd1};
   int addr_len = 0;
   ULONGEST stack_bytes_read = 0;
@@ -1530,7 +1545,8 @@ z80_step_ret_test ()
       scoped_mock_context<z80_step_target> ctx (arch);
       ctx.mock_target.addr_len
 	= gdbarch_tdep<z80_gdbarch_tdep> (arch)->addr_length;
-      regcache *regs = get_thread_regcache (&ctx.mock_thread);
+      regcache *regs = get_thread_arch_regcache (&ctx.mock_inferior,
+						ctx.mock_ptid, arch);
       gdb_byte value[3];
       store_unsigned_integer (value, ctx.mock_target.addr_len,
 			      BFD_ENDIAN_LITTLE, 0x1000);
@@ -1568,6 +1584,97 @@ z80_step_ret_test ()
     }
 }
 
+/* LLVM and SDCC frame setup, in both register widths.  Every instruction
+   boundary (and every truncated instruction) must stay within the read.  */
+static void
+z80_prologue_test ()
+{
+  for (unsigned long mach : {bfd_mach_z80, bfd_mach_ez80_z80,
+			     bfd_mach_ez80_adl})
+    {
+      gdbarch_info arch_info;
+      arch_info.bfd_arch_info = bfd_lookup_arch (bfd_arch_z80, mach);
+      arch_info.byte_order = BFD_ENDIAN_LITTLE;
+      gdbarch *arch = gdbarch_find_by_info (arch_info);
+      scoped_mock_context<z80_step_target> ctx (arch);
+      int width = gdbarch_tdep<z80_gdbarch_tdep> (arch)->addr_length;
+      for (int state = 0; state < 3; ++state)
+	for (bool reset_sp : {false, true})
+	  for (bool use_iy : {false, true})
+	    {
+	      std::vector<gdb_byte> code;
+	      if (state == 1)
+		code = {0xed, 0x57, 0xf3, 0xf5};
+	      else if (state == 2)
+		code = {0xf5, 0xc5, 0xd5, 0xe5, 0xfd, 0xe5};
+	      code.insert (code.end (), {0xdd, 0xe5, 0xdd, 0x21});
+	      code.insert (code.end (), width, 0);
+	      code.insert (code.end (), {0xdd, 0x39});
+	      int frame_len = code.size ();
+	      if (reset_sp)
+		code.insert (code.end (), {0xdd, 0xf9});
+	      if (use_iy)
+		code.push_back (0xfd);
+	      code.push_back (0x21);
+	      code.push_back (0xf4); /* Allocate twelve bytes.  */
+	      code.insert (code.end (), width - 1, 0xff);
+	      if (use_iy)
+		code.insert (code.end (), {0xfd, 0x39, 0xfd, 0xf9});
+	      else
+		code.insert (code.end (), {0x39, 0xf9});
+	      memcpy (ctx.mock_target.code, code.data (), code.size ());
+	      for (int len = 0; len <= code.size (); ++len)
+		{
+		  z80_unwind_cache cache {};
+		  trad_frame_saved_reg saved[Z80_NUM_REGS];
+		  cache.saved_regs = saved;
+		  int end = z80_scan_prologue (arch, 0x1000,
+					      0x1000 + len, &cache);
+		  SELF_CHECK (end <= 0x1000 + len);
+		  SELF_CHECK (cache.prologue_type.fp_sdcc
+			      == (len >= frame_len));
+		  if (len == code.size ())
+		    {
+		      int slots = state == 2 ? 6 : state == 1 ? 2 : 1;
+		      SELF_CHECK (end == 0x1000 + len);
+		      SELF_CHECK (cache.size == 12);
+		      SELF_CHECK (cache.state_size == slots * width);
+		      SELF_CHECK (saved[Z80_IX_REGNUM].addr () == slots);
+		      if (state == 2)
+			{
+			  SELF_CHECK (saved[Z80_AF_REGNUM].addr () == 1);
+			  SELF_CHECK (saved[Z80_IY_REGNUM].addr () == 5);
+			}
+		    }
+		}
+	    }
+      const gdb_byte args[] = {0xf1, 0xd1, 0xe1, 0xc1,
+			       0xc5, 0xe5, 0xd5, 0xf5};
+      memcpy (ctx.mock_target.code, args, sizeof (args));
+      {
+	z80_unwind_cache cache {};
+	trad_frame_saved_reg saved[Z80_NUM_REGS];
+	cache.saved_regs = saved;
+	SELF_CHECK (z80_scan_prologue (arch, 0x1000,
+				      0x1000 + sizeof (args), &cache)
+		    == 0x1000 + sizeof (args));
+	SELF_CHECK (cache.prologue_type.load_args);
+	SELF_CHECK (cache.size == 0);
+      }
+      /* Saving IX alone must not make the caller's IX this frame's base.  */
+      ctx.mock_target.code[0] = 0xdd;
+      ctx.mock_target.code[1] = 0xe5;
+      z80_unwind_cache cache {};
+      trad_frame_saved_reg saved[Z80_NUM_REGS];
+      cache.saved_regs = saved;
+      SELF_CHECK (z80_scan_prologue (arch, 0x1000, 0x1002, &cache) == 0x1002);
+      SELF_CHECK (!cache.prologue_type.fp_sdcc);
+      SELF_CHECK (cache.state_size == width);
+      SELF_CHECK (saved[Z80_IX_REGNUM].addr () == 1);
+    }
+}
+
+
 } /* namespace selftests */
 #endif /* GDB_SELF_TEST */
 
@@ -1577,5 +1684,6 @@ INIT_GDB_FILE (z80_tdep)
   initialize_tdesc_z80 ();
 #if GDB_SELF_TEST
   selftests::register_test ("z80-step-ret", selftests::z80_step_ret_test);
+  selftests::register_test ("z80-prologue", selftests::z80_prologue_test);
 #endif
 }
