@@ -16520,14 +16520,15 @@ test_memory_tagging_functions ()
   std::string expected, reply;
   packet.resize (32000);
 
-  /* Test creating a qMemTags request.  */
+  /* Test creating a qMemTags request.  Use an address that also fits
+     narrow targets such as Z80 and eZ80.  */
 
   expected = "qMemTags:0,0:0";
   create_fetch_memtags_request (packet, 0x0, 0x0, 0);
   SELF_CHECK (streq (packet.data (), expected.c_str ()));
 
-  expected = "qMemTags:deadbeef,10:1";
-  create_fetch_memtags_request (packet, 0xdeadbeef, 16, 1);
+  expected = "qMemTags:beef,10:1";
+  create_fetch_memtags_request (packet, 0xbeef, 16, 1);
   SELF_CHECK (streq (packet.data (), expected.c_str ()));
 
   /* Test parsing a qMemTags reply.  */
@@ -16568,14 +16569,14 @@ test_memory_tagging_functions ()
   tags.resize (0);
   for (int i = 0; i < 5; i++)
     tags.push_back (i);
-  expected = "QMemTags:deadbeef,ff:1:0001020304";
-  create_store_memtags_request (packet, 0xdeadbeef, 255, 1, tags);
+  expected = "QMemTags:beef,ff:1:0001020304";
+  create_store_memtags_request (packet, 0xbeef, 255, 1, tags);
   SELF_CHECK (memcmp (packet.data (), expected.c_str (),
 		      expected.length ()) == 0);
 
   /* Test creating a qIsAddressTagged request.  */
-  expected = "qIsAddressTagged:deadbeef";
-  create_is_address_tagged_request (gdbarch, packet, 0xdeadbeef);
+  expected = "qIsAddressTagged:beef";
+  create_is_address_tagged_request (gdbarch, packet, 0xbeef);
   SELF_CHECK (streq (packet.data (), expected.c_str ()));
 
   /* Test error reply on qIsAddressTagged request.  */
