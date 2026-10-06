@@ -14682,6 +14682,12 @@ read_addr_index_1 (dwarf2_per_objfile *per_objfile, unsigned int addr_index,
 	      + addr_index * addr_size);
   if (addr_size == 4)
     return (unrelocated_addr) bfd_get_32 (abfd, info_ptr);
+  else if (addr_size == 3)
+    return (unrelocated_addr) bfd_get_24 (abfd, info_ptr);
+  else if (addr_size == 2)
+    return (unrelocated_addr) bfd_get_16 (abfd, info_ptr);
+  else if (addr_size == 1)
+    return (unrelocated_addr) bfd_get_8 (abfd, info_ptr);
   else
     return (unrelocated_addr) bfd_get_64 (abfd, info_ptr);
 }
