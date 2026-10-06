@@ -21,6 +21,7 @@
 
 #include "sysdep.h"
 #include "disassemble.h"
+#include <stdarg.h>
 #include <stdio.h>
 
 struct buffer
@@ -768,6 +769,22 @@ pref_ind (struct buffer *buf, disassemble_info *info, const char *txt)
 static int
 print_insn_z80_buf (struct buffer *buf, disassemble_info *info);
 
+/* Collect the instruction text before inserting an eZ80 mode suffix.  Some
+   decoders emit several fragments, so append each fragment to the buffer.  */
+static int
+z80_buffer_printf (void *stream, const char *format, ...)
+{
+  char *buffer = stream;
+  size_t used = strlen (buffer);
+  va_list args;
+  int result;
+
+  va_start (args, format);
+  result = vsnprintf (buffer + used, TXTSIZ * 4 - used, format, args);
+  va_end (args);
+  return result;
+}
+
 static int
 suffix (struct buffer *buf, disassemble_info *info, const char *txt)
 {
@@ -801,7 +818,7 @@ suffix (struct buffer *buf, disassemble_info *info, const char *txt)
 
   old_fprintf = info->fprintf_func;
   old_stream = info->stream;
-  info->fprintf_func = (fprintf_ftype) &sprintf;
+  info->fprintf_func = z80_buffer_printf;
   info->stream = mybuf;
   mybuf[0] = 0;
   buf->base++;
