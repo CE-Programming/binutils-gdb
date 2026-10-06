@@ -3,7 +3,7 @@ name: Win/Mac/Linux
 on:
   push:
     branches:
-      - binutils-2_45_1-cedev
+      - binutils-2_47-cedev
   workflow_dispatch:
 
 jobs:
@@ -123,7 +123,12 @@ jobs:
   nightly:
     runs-on: ubuntu-latest
     needs: [build]
-    if: github.event_name != 'pull_request'
+    if: github.repository == 'CE-Programming/binutils-gdb' && github.ref == 'refs/heads/binutils-2_47-cedev' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: write
+    concurrency:
+      group: binutils-nightly
+      cancel-in-progress: false
 
     steps:
       - name: Download Ubuntu binutils
@@ -150,7 +155,7 @@ jobs:
           name: binutils-Windows
           path: ${{github.workspace}}/windows
 
-      - name: Create Ubunutu Nightly
+      - name: Create Ubuntu Nightly
         run: |
           cd ubuntu
           mv binutils-Linux.tar.gz ../binutils_ubuntu_nightly.tar.gz
@@ -176,6 +181,7 @@ jobs:
         with:
           tag_name: nightly
           name: Nightly Build
+          target_commitish: ${{ github.sha }}
           prerelease: true
           files: |
             binutils_ubuntu_nightly.tar.gz
