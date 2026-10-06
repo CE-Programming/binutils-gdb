@@ -1324,7 +1324,7 @@ ez80_ed_insn_table[] =
   /* common instructions */
   { 0173, 0377, 3, insn_ld_sp_6nn9 }, //"ld sp,(nn)"
   { 0103, 0307, 3, insn_default    }, //"ld (nn),rr", "ld rr,(nn)"
-  { 0105, 0317, 1, insn_ret        }, //"retn", "reti"
+  { 0105, 0307, 1, insn_ret        }, //"retn", "reti"
   { 0000, 0000, 1, insn_default    }
 };
 
@@ -1341,7 +1341,7 @@ ez80_adl_ed_insn_table[] =
   { 0144, 0377, 2, insn_default }, //"tst a, n"
   { 0173, 0377, 4, insn_ld_sp_6nn9 }, //"ld sp,(nn)"
   { 0103, 0307, 4, insn_default }, //"ld (nn),rr", "ld rr,(nn)"
-  { 0105, 0317, 1, insn_ret     }, //"retn", "reti"
+  { 0105, 0307, 1, insn_ret     }, //"retn", "reti"
   { 0000, 0000, 1, insn_default }
 };
 
@@ -1540,8 +1540,8 @@ z80_step_ret_test ()
       regs->raw_supply (Z80_SP_REGNUM, value);
       CORE_ADDR destination = mach == bfd_mach_ez80_adl ? 0xd1a957 : 0xa957;
 
-      /* RET, RETN, and both outcomes of all eight conditional RETs.  */
-      for (int condition = -2; condition < 8; ++condition)
+      /* RET, RETN, RETI, and both outcomes of all eight conditional RETs.  */
+      for (int condition = -3; condition < 8; ++condition)
 	for (bool taken : {false, true})
 	  {
 	    if (condition < 0 && !taken)
@@ -1551,7 +1551,7 @@ z80_step_ret_test ()
 	    ctx.mock_target.code[0] = size == 2 ? 0xed
 	      : condition == -1 ? 0xc9 : 0xc0 + condition * 8;
 	    if (size == 2)
-	      ctx.mock_target.code[1] = 0x45;
+	      ctx.mock_target.code[1] = condition == -3 ? 0x45 : 0x4d;
 	    const int flags[] = {0x40, 0x01, 0x04, 0x80};
 	    int af = condition < 0 ? 0
 	      : (((condition & 1) != 0) == taken ? flags[condition / 2] : 0);
