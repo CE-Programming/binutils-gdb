@@ -60,14 +60,14 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          ./configure --target=z80-none-elf --with-zstd=no --disable-sim --disable-nls --disable-plugins --without-python --prefix="${{ runner.temp }}/binutils"
+          ./configure --target=z80-none-elf --with-zstd=no --disable-sim --enable-unit-tests --disable-nls --disable-plugins --without-python --without-guile --disable-source-highlight --without-debuginfod --prefix="${{ runner.temp }}/binutils"
           make -j4 && make install-strip -j4
 
       - name: "[macOS] Build binutils"
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          ./configure --target=z80-none-elf --with-zstd=no --disable-sim --disable-nls --disable-plugins --without-python --with-system-zlib --with-gmp=$(brew --prefix gmp) --with-mpfr=$(brew --prefix mpfr) --prefix="${{ runner.temp }}/binutils"
+          ./configure --target=z80-none-elf --with-zstd=no --disable-sim --enable-unit-tests --disable-nls --disable-plugins --disable-werror --without-python --without-guile --disable-source-highlight --without-debuginfod --with-system-zlib --with-gmp="$(brew --prefix gmp)" --with-mpfr="$(brew --prefix mpfr)" --prefix="${{ runner.temp }}/binutils"
           make -j4 && make install-strip -j4
 
       - name: "[Windows] Build binutils"
@@ -78,8 +78,24 @@ jobs:
           export ac_cv_header_ncurses_term_h=no
           export ac_cv_search_tgetent=no
           PREFIX=$(cygpath -m "${{ runner.temp }}/binutils")
-          ./configure --target=z80-none-elf --disable-tui --without-curses --with-zstd=no --disable-sim --disable-nls --disable-plugins --disable-shared --enable-static --without-python --prefix="$PREFIX"
+          ./configure --target=z80-none-elf --disable-tui --without-curses --with-zstd=no --disable-sim --enable-unit-tests --disable-nls --disable-plugins --disable-shared --enable-static --without-python --without-guile --disable-source-highlight --without-debuginfod --prefix="$PREFIX"
           make configure-host && make -j4 LDFLAGS="-all-static" MAKEINFO=true && make install-strip -j4 MAKEINFO=true
+
+      - name: "[Unix] Test GDB return-address stepping"
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          "${{ runner.temp }}/binutils/bin/z80-none-elf-gdb" -nx -batch -ex 'maintenance selftest z80-step-ret' 2>&1 | tee gdb-selftests.log
+          grep -Fx 'Ran 1 unit tests, 0 failed' gdb-selftests.log
+
+      - name: "[Windows] Test GDB return-address stepping"
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -eo pipefail
+          PREFIX=$(cygpath -u "${{ runner.temp }}/binutils")
+          "$PREFIX/bin/z80-none-elf-gdb.exe" -nx -batch -ex 'maintenance selftest z80-step-ret' 2>&1 | tr -d '\r' | tee gdb-selftests.log
+          grep -Fx 'Ran 1 unit tests, 0 failed' gdb-selftests.log
 
       - name: "[Unix] Install License Files"
         if: runner.os != 'Windows'
