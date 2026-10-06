@@ -2,6 +2,8 @@
 #source: eh5a.s
 #source: eh5b.s
 #ld: [alpha_ld_flags]
+#as: --gdwarf-cie-version=3
+# The expected layout below exercises pre-v4 CIEs.
 #readelf: -wf
 #target: [check_as_cfi]
 #xfail: alpha-*-*ecoff tile*-*-* visium-*-*

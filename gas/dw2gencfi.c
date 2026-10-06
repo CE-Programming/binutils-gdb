@@ -1960,9 +1960,8 @@ output_cie (struct cie_entry *cie, bool eh_frame, int align)
   out_one (0);
   if (flag_dwarf_cie_version >= 4)
     {
-      /* For now we are assuming a flat address space with 4 or 8 byte
-         addresses.  */
-      int address_size = dwarf2_format_32bit ? 4 : 8;
+      /* The target address width is independent of the DWARF offset size.  */
+      int address_size = DWARF2_ADDR_SIZE (stdoutput);
       out_one (address_size);			/* Address size.  */
       out_one (0);				/* Segment size.  */
     }

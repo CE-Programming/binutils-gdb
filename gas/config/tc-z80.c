@@ -490,6 +490,15 @@ static const struct reg_entry regtable[] =
 #define BUFLEN 8 /* Large enough for any keyword.  */
 
 void
+z80_md_after_parse_args (void)
+{
+  /* ELF32 does not describe our 16/24-bit code address width.  CIE v4
+     carries an explicit address size for DWARF frame readers.  */
+  if (flag_dwarf_cie_version == -1)
+    flag_dwarf_cie_version = 4;
+}
+
+void
 md_begin (void)
 {
   expressionS nul, reg;

@@ -611,12 +611,22 @@ z80_elf_16_be_reloc (bfd *abfd,
   return bfd_reloc_ok;
 }
 
+/* ELF32 describes the container, not the code address width in CIE v4.  */
+static unsigned int
+z80_elf_eh_frame_address_size (bfd *abfd,
+			       const asection *sec ATTRIBUTE_UNUSED)
+{
+  return bfd_get_mach (abfd) == bfd_mach_ez80_adl ? 3 : 2;
+}
+
 #define ELF_ARCH		bfd_arch_z80
 #define ELF_MACHINE_CODE	EM_Z80
 #define ELF_MAXPAGESIZE		0x10000
 
 #define TARGET_LITTLE_SYM		z80_elf32_vec
 #define TARGET_LITTLE_NAME		"elf32-z80"
+
+#define elf_backend_eh_frame_address_size	z80_elf_eh_frame_address_size
 
 #define elf_backend_can_refcount		1
 #define elf_backend_can_gc_sections		1

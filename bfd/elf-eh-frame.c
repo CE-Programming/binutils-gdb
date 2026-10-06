@@ -2046,6 +2046,8 @@ _bfd_elf_write_section_eh_frame (bfd *abfd,
 	      version = *buf++;
 	      aug = (char *) buf;
 	      buf += strlen (aug) + 1;
+	      if (version >= 4)
+		skip_bytes (&buf, end, 2); /* Address and segment sizes.  */
 	      skip_leb128 (&buf, end);
 	      skip_leb128 (&buf, end);
 	      if (version == 1)

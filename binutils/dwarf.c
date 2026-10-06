@@ -11072,8 +11072,7 @@ display_debug_frames (struct dwarf_section *section,
 	      fc->fde_encoding = cie->fde_encoding;
 	    }
 
-	  if (fc->fde_encoding)
-	    encoded_ptr_size = size_of_encoded_value (fc->fde_encoding);
+	  encoded_ptr_size = size_of_encoded_value (fc->fde_encoding);
 
 	  segment_selector = 0;
 	  if (fc->segment_size)
