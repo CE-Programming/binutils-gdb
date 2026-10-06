@@ -864,10 +864,12 @@ z80_software_single_step (struct regcache *regcache)
     case insn_ret:
     case insn_ret_cc:
       regcache->cooked_read (Z80_SP_REGNUM, &addr);
-      read_memory (addr, buf, 3);
-      addr = buf[1] * 0x100 + buf[0];
-      if (gdbarch_bfd_arch_info (gdbarch)->mach == bfd_mach_ez80_adl)
-	addr = addr * 0x100 + buf[2];
+      {
+	int addr_len = gdbarch_tdep<z80_gdbarch_tdep> (gdbarch)->addr_length;
+	read_memory (addr, buf, addr_len);
+	addr = extract_unsigned_integer (buf, addr_len,
+					 gdbarch_byte_order (gdbarch));
+      }
       break;
     }
   ret[0] = addr;
@@ -1475,8 +1477,105 @@ z80_get_insn_info (struct gdbarch *gdbarch, const gdb_byte *buf, int *size)
   while (1);
 }
 
+#if GDB_SELF_TEST
+#include "gdbsupport/selftest.h"
+#include "scoped-mock-context.h"
+#include "test-target.h"
+
+namespace selftests {
+
+/* Exercise the software stepper with real regcache and target memory reads.
+   Only the return address is readable at SP, to catch oversized reads in
+   16-bit mode as well as incorrect byte ordering in ADL mode.  */
+class z80_step_target : public test_target_ops
+{
+public:
+  gdb_byte code[8] = {};
+  gdb_byte stack[3] = {0x57, 0xa9, 0xd1};
+  int addr_len = 0;
+  ULONGEST stack_bytes_read = 0;
+
+  target_xfer_status xfer_partial (target_object object, const char *annex,
+				  gdb_byte *readbuf, const gdb_byte *writebuf,
+				  ULONGEST offset, ULONGEST len,
+				  ULONGEST *xfered_len) override
+  {
+    if (object != TARGET_OBJECT_MEMORY || readbuf == nullptr)
+      return TARGET_XFER_E_IO;
+    if (offset >= 0x1000 && offset + len <= 0x1000 + sizeof (code))
+      memcpy (readbuf, code + offset - 0x1000, len);
+    else if (offset >= 0x2000 && offset + len <= 0x2000 + addr_len)
+      {
+	memcpy (readbuf, stack + offset - 0x2000, len);
+	stack_bytes_read += len;
+      }
+    else
+      return TARGET_XFER_E_IO;
+    *xfered_len = len;
+    return TARGET_XFER_OK;
+  }
+};
+
+static void
+z80_step_ret_test ()
+{
+  for (unsigned long mach : {bfd_mach_z80, bfd_mach_ez80_z80,
+			     bfd_mach_ez80_adl})
+    {
+      gdbarch_info info;
+      info.bfd_arch_info = bfd_lookup_arch (bfd_arch_z80, mach);
+      info.byte_order = BFD_ENDIAN_LITTLE;
+      gdbarch *arch = gdbarch_find_by_info (info);
+      SELF_CHECK (arch != nullptr);
+      scoped_mock_context<z80_step_target> ctx (arch);
+      ctx.mock_target.addr_len
+	= gdbarch_tdep<z80_gdbarch_tdep> (arch)->addr_length;
+      regcache *regs = get_thread_regcache (&ctx.mock_thread);
+      gdb_byte value[3];
+      store_unsigned_integer (value, ctx.mock_target.addr_len,
+			      BFD_ENDIAN_LITTLE, 0x1000);
+      regs->raw_supply (Z80_PC_REGNUM, value);
+      store_unsigned_integer (value, ctx.mock_target.addr_len,
+			      BFD_ENDIAN_LITTLE, 0x2000);
+      regs->raw_supply (Z80_SP_REGNUM, value);
+      CORE_ADDR destination = mach == bfd_mach_ez80_adl ? 0xd1a957 : 0xa957;
+
+      /* RET, RETN, and both outcomes of all eight conditional RETs.  */
+      for (int condition = -2; condition < 8; ++condition)
+	for (bool taken : {false, true})
+	  {
+	    if (condition < 0 && !taken)
+	      continue;
+	    memset (ctx.mock_target.code, 0, sizeof (ctx.mock_target.code));
+	    int size = condition < -1 ? 2 : 1;
+	    ctx.mock_target.code[0] = size == 2 ? 0xed
+	      : condition == -1 ? 0xc9 : 0xc0 + condition * 8;
+	    if (size == 2)
+	      ctx.mock_target.code[1] = 0x45;
+	    const int flags[] = {0x40, 0x01, 0x04, 0x80};
+	    int af = condition < 0 ? 0
+	      : (((condition & 1) != 0) == taken ? flags[condition / 2] : 0);
+	    store_unsigned_integer (value, register_size (arch, Z80_AF_REGNUM),
+				    BFD_ENDIAN_LITTLE, af);
+	    regs->raw_supply (Z80_AF_REGNUM, value);
+	    ctx.mock_target.stack_bytes_read = 0;
+	    std::vector<CORE_ADDR> next = z80_software_single_step (regs);
+	    SELF_CHECK (next.size () == 1);
+	    SELF_CHECK (next[0] == (taken ? destination : 0x1000 + size));
+	    SELF_CHECK (ctx.mock_target.stack_bytes_read
+			== (taken ? ctx.mock_target.addr_len : 0));
+	  }
+    }
+}
+
+} /* namespace selftests */
+#endif /* GDB_SELF_TEST */
+
 INIT_GDB_FILE (z80_tdep)
 {
   gdbarch_register (bfd_arch_z80, z80_gdbarch_init);
   initialize_tdesc_z80 ();
+#if GDB_SELF_TEST
+  selftests::register_test ("z80-step-ret", selftests::z80_step_ret_test);
+#endif
 }
