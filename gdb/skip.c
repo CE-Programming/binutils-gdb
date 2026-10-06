@@ -1219,8 +1219,12 @@ do_skip_gfile_p (const std::string &pattern, const compiled_regex &re,
   /* If basenames don't match then the full pattern cannot match.  The
      gdb_filename_fnmatch already handles case insensitive filesystems, and
      as we're only checking the basenames here, directory separators are
-     not a problem.  */
+     not a problem.  However, libiberty's fnmatch does not support every
+     bracket expression accepted by glob_to_regexp, including POSIX character
+     classes and a literal unmatched '['.  Let the regexp decide those
+     patterns instead of rejecting them in this optional prefilter.  */
   if (!basenames_may_differ
+      && pattern.find ('[') == std::string::npos
       && gdb_filename_fnmatch (lbasename (pattern.c_str ()),
 			       lbasename (get_filename ()),
 			       FNM_FILE_NAME | FNM_NOESCAPE) != 0)
