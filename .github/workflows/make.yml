@@ -11,14 +11,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runs-on: [ubuntu-22.04, macos-15-intel, macos-14, windows-latest]
+        runs-on: [ubuntu-22.04, macos-15-intel, macos-15, windows-latest]
         include:
           - runs-on: ubuntu-22.04
             install-output-ext: "tar.gz"
           - runs-on: macos-15-intel
             arch-suffix: "-intel"
             install-output-ext: "tar.gz"
-          - runs-on: macos-14
+          - runs-on: macos-15
             arch-suffix: "-arm"
             install-output-ext: "tar.gz"
           - runs-on: windows-latest
@@ -26,7 +26,7 @@ jobs:
     runs-on: ${{ matrix.runs-on }}
     steps:
       - name: Checkout binutils
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -144,7 +144,7 @@ jobs:
           Move-Item "binutils-${{ runner.os }}.${{ matrix.install-output-ext }}" "${{ github.workspace }}"
 
       - name: Upload binutils
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binutils-${{ runner.os }}${{ matrix.arch-suffix }}
           path: binutils-${{ runner.os }}.${{ matrix.install-output-ext }}
@@ -162,25 +162,25 @@ jobs:
 
     steps:
       - name: Download Ubuntu binutils
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: binutils-Linux
           path: ${{github.workspace}}/ubuntu
 
       - name: Download macOS Intel binutils
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: binutils-macOS-intel
           path: ${{github.workspace}}/macos-intel
 
       - name: Download macOS ARM binutils
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: binutils-macOS-arm
           path: ${{github.workspace}}/macos-arm
 
       - name: Download Windows binutils
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: binutils-Windows
           path: ${{github.workspace}}/windows
@@ -207,7 +207,7 @@ jobs:
           zip -r9 ../binutils_windows_nightly.zip binutils
 
       - name: Create Nightly Release
-        uses: softprops/action-gh-release@5122b4edc95f85501a71628a57dc180a03ec7588
+        uses: softprops/action-gh-release@6680cc089e59314c4460b839412c25fb6a71ce3b # latest as of 2026-11-01
         with:
           tag_name: nightly
           name: Nightly Build
